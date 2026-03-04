@@ -12,7 +12,33 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script type="text/babel" data-presets="react">
-const { useState, useEffect } = React;
+const { useState, useEffect, useCallback } = React;
+
+const SUPABASE_URL = "https://gwfuuadgewvmkadqoejd.supabase.co";
+const SUPABASE_KEY = "sb_publishable_LKWLpYQEI6TiMna5bk3JHw_sKmtI0UI";
+
+async function dbGetAll() {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/gym_cells?select=cell_key,cell_value`, {
+    headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+  });
+  const rows = await r.json();
+  const obj = {};
+  if (Array.isArray(rows)) rows.forEach(r => { obj[r.cell_key] = r.cell_value; });
+  return obj;
+}
+
+async function dbUpsert(cell_key, cell_value) {
+  await fetch(`${SUPABASE_URL}/rest/v1/gym_cells`, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({ cell_key, cell_value })
+  });
+}
 
 const initialData = {
   lunes: {
@@ -85,8 +111,6 @@ const initialData = {
 };
 
 const WEEKS = ["S1","S2","S3","S4"];
-const STORAGE_KEY = "gymtracker_cells_v1";
-
 const colorMap = {
   blue:   { header:"bg-blue-600 text-white", section:"bg-blue-50 text-blue-700", row:"hover:bg-blue-50", badge:"bg-blue-100 text-blue-700", border:"border-blue-200", tab:"bg-blue-600 text-white", tabI:"bg-blue-100 text-blue-700 hover:bg-blue-200", chart:"#3b82f6" },
   purple: { header:"bg-purple-600 text-white", section:"bg-purple-50 text-purple-700", row:"hover:bg-purple-50", badge:"bg-purple-100 text-purple-700", border:"border-purple-200", tab:"bg-purple-600 text-white", tabI:"bg-purple-100 text-purple-700 hover:bg-purple-200", chart:"#9333ea" },
@@ -183,18 +207,21 @@ function EvolutionTab({cells}){
 
 function App(){
   const [tab,setTab]=useState("lunes");
-  const [cells,setCells]=useState(()=>{
-    try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"); }catch{ return {}; }
-  });
+  const [cells,setCells]=useState({});
+  const [loading,setLoading]=useState(true);
   const [editing,setEditing]=useState(null);
   const [exported,setExported]=useState(false);
+  const [saving,setSaving]=useState(false);
 
   useEffect(()=>{
-    try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(cells)); }catch{}
-  },[cells]);
+    dbGetAll().then(data=>{ setCells(data); setLoading(false); }).catch(()=>setLoading(false));
+  },[]);
 
   const updCell=(day,sec,ex,week,val)=>{
-    setCells(p=>({...p,[makeKey(day,sec,ex,week)]:val}));
+    const k=makeKey(day,sec,ex,week);
+    setCells(p=>({...p,[k]:val}));
+    setSaving(true);
+    dbUpsert(k,val).finally(()=>setSaving(false));
   };
 
   const handleExport=()=>{
@@ -217,7 +244,7 @@ function App(){
         <div className="flex items-center justify-between mb-5">
           <div>
             <h1 className="text-xl font-bold text-gray-800">🏋️ Mi Gym Tracker</h1>
-            <p className="text-gray-400 text-xs">Datos guardados en este dispositivo</p>
+            <p className="text-gray-400 text-xs">{loading?"⏳ Cargando datos...":saving?"💾 Guardando...":"✅ Sincronizado en la nube"}</p>
           </div>
           <button onClick={handleExport}
             className="flex items-center gap-2 bg-white border border-gray-200 hover:border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded-lg shadow-sm transition-all">
